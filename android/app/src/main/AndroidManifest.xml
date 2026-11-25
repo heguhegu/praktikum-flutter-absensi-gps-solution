@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Izin Lokasi & Internet untuk Praktikum P08 -->
+	<uses-permissionandroid:name="android.permission.ACCESS_FINE_LOCATION" />
+	<uses-permissionandroid:name="android.permission.ACCESS_COARSE_LOCATION" />
+	<uses-permissionandroid:name="android.permission.INTERNET" />
     <application
         android:label="absensi_gps_app"
         android:name="${applicationName}"
