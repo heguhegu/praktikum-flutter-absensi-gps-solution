@@ -2,42 +2,79 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 
 class LocationService {
-  /// TODO 1: Memastikan layanan GPS aktif dan izin lokasi diberikan oleh pengguna
+  final Geocoding _geocoding = Geocoding();
+
+  /// Memastikan layanan GPS aktif dan izin lokasi diberikan
   Future<void> ensurePermission() async {
-    // 1. Cek apakah GPS perangkat aktif (Geolocator.isLocationServiceEnabled)
-    // 2. Cek status izin saat ini (Geolocator.checkPermission)
-    // 3. Jika denied, minta izin (Geolocator.requestPermission)
-    // 4. Jika deniedForever, lempar Exception dengan pesan yang jelas
-    throw UnimplementedError('TODO 1: Implementasikan pengecekan izin GPS');
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw Exception('Layanan GPS tidak aktif. Mohon aktifkan GPS Anda.');
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        throw Exception('Izin lokasi ditolak oleh pengguna.');
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception(
+        'Izin lokasi ditolak permanen. Buka Pengaturan Aplikasi untuk mengizinkan.',
+      );
+    }
   }
 
-  /// TODO 2: Mengambil titik koordinat (latitude & longitude) pengguna saat ini
+  /// Mengambil titik koordinat (latitude & longitude) saat ini
   Future<Position> getCurrentPosition() async {
     await ensurePermission();
-    // Gunakan Geolocator.getCurrentPosition dengan LocationAccuracy.high
-    throw UnimplementedError('TODO 2: Implementasikan getCurrentPosition()');
+    return await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+    );
   }
 
-  /// TODO 3 (Tugas Mandiri): Memantau pergerakan pengguna secara real-time
+  /// Memantau pergerakan pengguna secara real-time (Stream)
   Stream<Position> getPositionStream() {
-    // Gunakan Geolocator.getPositionStream dengan distanceFilter: 5
-    throw UnimplementedError('TODO 3: Implementasikan getPositionStream()');
+    return Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      ),
+    );
   }
 
-  /// TODO 4: Mengubah koordinat menjadi alamat jalan fisik (Reverse Geocoding)
+  /// Mengubah koordinat menjadi alamat fisik (Reverse Geocoding)
   Future<String> getAddressFromCoordinates(double lat, double lng) async {
-    // Gunakan placemarkFromCoordinates(lat, lng) dari paket geocoding
-    return 'Alamat belum diimplementasikan';
+    try {
+      List<Placemark> placemarks = await _geocoding.placemarkFromCoordinates(
+        lat,
+        lng,
+      );
+      if (placemarks.isNotEmpty) {
+        Placemark place = placemarks.first;
+        final parts = [
+          place.street,
+          place.subLocality,
+          place.locality,
+          place.administrativeArea,
+        ].where((part) => part != null && part.isNotEmpty).toList();
+
+        return parts.isNotEmpty ? parts.join(', ') : 'Alamat tidak ditemukan';
+      }
+      return 'Alamat tidak ditemukan';
+    } catch (e) {
+      return 'Gagal memuat alamat: $e';
+    }
   }
 
-  /// TODO 5: Menghitung jarak dalam meter antara dua titik koordinat
+  /// Menghitung jarak dalam meter antara dua titik koordinat
   double calculateDistanceInMeters(
     double startLat,
     double startLng,
     double endLat,
     double endLng,
   ) {
-    // Gunakan Geolocator.distanceBetween(...)
-    return 0.0;
+    return Geolocator.distanceBetween(startLat, startLng, endLat, endLng);
   }
 }

@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+
 import '../services/location_service.dart';
 
 class HomeAttendanceScreen extends StatefulWidget {
@@ -15,50 +18,92 @@ class _HomeAttendanceScreenState extends State<HomeAttendanceScreen> {
   final LocationService _locationService = LocationService();
   final MapController _mapController = MapController();
 
-  // Koordinat pusat kampus (Sesuaikan dengan titik koordinat kampus Anda)
-  final LatLng _campusLocation = const LatLng(-6.175392, 106.827153);
+  // Koordinat pusat kampus (Sesuaikan dengan kampus Anda)
+  final LatLng _campusLocation = const LatLng(
+    -6.273065314261358,
+    106.52515806386238,
+  );
   final double _maxRadiusMeters = 100.0;
 
   LatLng? _studentLocation;
   double? _distanceToCampus;
   String _address = 'Tekan "Cek GPS" untuk mendeteksi lokasi Anda';
   bool _isLoading = false;
+  bool _isTracking = false;
+
+  StreamSubscription<Position>? _positionSubscription;
+
+  @override
+  void dispose() {
+    _positionSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _updatePositionData(Position pos) async {
+    final LatLng newPos = LatLng(pos.latitude, pos.longitude);
+    final double dist = _locationService.calculateDistanceInMeters(
+      _campusLocation.latitude,
+      _campusLocation.longitude,
+      pos.latitude,
+      pos.longitude,
+    );
+    final String addr = await _locationService.getAddressFromCoordinates(
+      pos.latitude,
+      pos.longitude,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _studentLocation = newPos;
+      _distanceToCampus = dist;
+      _address = addr;
+    });
+
+    _mapController.move(newPos, 17.5);
+  }
 
   Future<void> _detectLocation() async {
     setState(() => _isLoading = true);
     try {
-      // TODO 6: Panggil _locationService.getCurrentPosition()
-      // TODO 7: Hitung jarak dengan _locationService.calculateDistanceInMeters()
-      // TODO 8: Ambil alamat fisik dengan _locationService.getAddressFromCoordinates()
-      // TODO 9: Perbarui _studentLocation, _distanceToCampus, _address, lalu geser kamera peta (_mapController.move)
-
       final Position pos = await _locationService.getCurrentPosition();
-      final double dist = _locationService.calculateDistanceInMeters(
-        _campusLocation.latitude,
-        _campusLocation.longitude,
-        pos.latitude,
-        pos.longitude,
-      );
-      final String addr = await _locationService.getAddressFromCoordinates(
-        pos.latitude,
-        pos.longitude,
-      );
-
-      setState(() {
-        _studentLocation = LatLng(pos.latitude, pos.longitude);
-        _distanceToCampus = dist;
-        _address = addr;
-      });
-
-      _mapController.move(_studentLocation!, 17.5);
+      await _updatePositionData(pos);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$e')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _toggleLiveTracking() async {
+    if (_isTracking) {
+      await _positionSubscription?.cancel();
+      setState(() => _isTracking = false);
+      return;
+    }
+
+    try {
+      await _locationService.ensurePermission();
+      setState(() => _isTracking = true);
+
+      _positionSubscription = _locationService.getPositionStream().listen(
+        (Position pos) async {
+          await _updatePositionData(pos);
+        },
+        onError: (err) {
+          if (!mounted) return;
+          setState(() => _isTracking = false);
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('Error Live GPS: $err')));
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 
@@ -85,7 +130,13 @@ class _HomeAttendanceScreenState extends State<HomeAttendanceScreen> {
           children: [
             Text('Waktu: $timeStr'),
             const SizedBox(height: 4),
-            Text('Jarak: ${_distanceToCampus!.toStringAsFixed(1)} meter dari kampus'),
+            Text(
+              'Jarak: ${_distanceToCampus!.toStringAsFixed(1)} meter dari kampus',
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Koordinat: ${_studentLocation!.latitude.toStringAsFixed(6)}, ${_studentLocation!.longitude.toStringAsFixed(6)}',
+            ),
             const SizedBox(height: 4),
             Text('Alamat: $_address'),
           ],
@@ -108,6 +159,18 @@ class _HomeAttendanceScreenState extends State<HomeAttendanceScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Absensi Kampus GPS (P08)'),
+        actions: [
+          IconButton(
+            tooltip: _isTracking
+                ? 'Matikan Live Tracking'
+                : 'Aktifkan Live Tracking',
+            onPressed: _toggleLiveTracking,
+            icon: Icon(
+              _isTracking ? Icons.gps_fixed : Icons.gps_not_fixed,
+              color: _isTracking ? Colors.green : null,
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -122,7 +185,7 @@ class _HomeAttendanceScreenState extends State<HomeAttendanceScreen> {
               ),
               children: [
                 TileLayer(
-                  urlTemplate: 'https://openstreetmap.org{z}/{x}/{y}.png',
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.kampus.absensi_gps_app',
                 ),
                 // Lingkaran batas radius kampus (100 meter)
@@ -205,17 +268,29 @@ class _HomeAttendanceScreenState extends State<HomeAttendanceScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  _distanceToCampus == null
-                      ? 'Jarak ke Kampus: -'
-                      : 'Jarak ke Kampus: ${_distanceToCampus!.toStringAsFixed(1)} meter',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: _distanceToCampus == null
-                        ? Colors.black87
-                        : (isWithinRadius ? Colors.green.shade700 : Colors.red.shade700),
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _distanceToCampus == null
+                          ? 'Jarak ke Kampus: -'
+                          : 'Jarak ke Kampus: ${_distanceToCampus!.toStringAsFixed(1)} meter',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: _distanceToCampus == null
+                            ? Colors.black87
+                            : (isWithinRadius
+                                  ? Colors.green.shade700
+                                  : Colors.red.shade700),
+                      ),
+                    ),
+                    if (_isTracking)
+                      const Chip(
+                        label: Text('Live', style: TextStyle(fontSize: 11)),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -234,7 +309,9 @@ class _HomeAttendanceScreenState extends State<HomeAttendanceScreen> {
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.my_location),
                         label: Text(_isLoading ? 'Mencari...' : 'Cek GPS'),
